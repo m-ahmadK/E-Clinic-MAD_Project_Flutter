@@ -1,4 +1,4 @@
-# e_clinic_new
+# E-Clinic-MAD_Project_Flutter
 
 A new Flutter project.
 
