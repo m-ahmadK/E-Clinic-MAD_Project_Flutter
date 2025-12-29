@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "830149600935",
+    "project_id": "eclinicsemesterproject",
+    "storage_bucket": "eclinicsemesterproject.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:830149600935:android:7c02123ce2a58036b6dd82",
+        "android_client_info": {
+          "package_name": "com.example.e_clinic_semesterproject"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGgLOWweSLyehczHr3fjRgspGXrVwKrlg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
