@@ -1,12 +1,18 @@
-// lib/main.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:e_clinic_new/providers/theme_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart'; // Import Permission Handler
 
+// --- SERVICES ---
+import 'services/notification_service.dart'; // Import Notification Service
+
+// --- PROVIDERS ---
+import 'providers/theme_provider.dart';
+
+// --- SCREENS ---
 import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
 import 'screens/patient_home.dart';
@@ -18,10 +24,20 @@ import 'screens/appointments_list.dart';
 import 'screens/patient_profile_screen.dart';
 import 'screens/patient_history_screen.dart';
 import 'screens/chat_screen.dart';
+import 'screens/patient_chat_list_screen.dart';
+import 'screens/appointment_detail_screen.dart';
+import 'screens/notification_screen.dart';
+import 'screens/admin_home.dart';
+import 'screens/total_doctors_screen.dart';
+import 'screens/total_patients_screen.dart';
+import 'screens/total_appointments_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+
+  // 1. Initialize Notifications
+  await NotificationService.initialize();
 
   runApp(
     MultiProvider(
@@ -79,6 +95,13 @@ class EClinicApp extends StatelessWidget {
         '/profile': (_) => const PatientProfileScreen(),
         '/history': (_) => const PatientHistoryScreen(),
         '/chat_screen': (context) => const ChatScreen(),
+        '/chat_list': (_) => const PatientChatListScreen(),
+        '/appointment_detail': (context) => const AppointmentDetailScreen(),
+        '/notifications': (context) => const NotificationScreen(),
+        '/admin_home': (_) => const AdminHomeScreen(),
+        '/total_doctors': (_) => const TotalDoctorsScreen(),
+        '/total_patients': (_) => const TotalPatientsScreen(),
+        '/total_appointments': (_) => const TotalAppointmentsScreen(),
       },
     );
   }
@@ -101,13 +124,16 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   void initState() {
     super.initState();
 
+    // 2. Request Notification Permission on App Start
+    _requestNotificationPermission();
+
     // Initialize Animation Controller
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
 
-    // Scale Animation (Bounce effect)
+    // Scale Animation
     _scaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
     );
@@ -117,9 +143,17 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       CurvedAnimation(parent: _controller, curve: const Interval(0.5, 1.0, curve: Curves.easeIn)),
     );
 
-    _controller.forward(); // Start Animation
+    _controller.forward();
 
     _decideNavigation();
+  }
+
+  // --- PERMISSION HELPER ---
+  Future<void> _requestNotificationPermission() async {
+    var status = await Permission.notification.status;
+    if (!status.isGranted) {
+      await Permission.notification.request();
+    }
   }
 
   @override
@@ -130,7 +164,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
   Future<void> _decideNavigation() async {
     try {
-      // Wait a bit longer so user can see the animation
       await Future.delayed(const Duration(milliseconds: 2000));
       final user = FirebaseAuth.instance.currentUser;
 
@@ -169,6 +202,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         } else {
           Navigator.pushReplacementNamed(context, '/doctor_form');
         }
+      } else if (role == 'admin') {
+        Navigator.pushReplacementNamed(context, '/admin_home');
       } else {
         Navigator.pushReplacementNamed(context, '/login');
       }
@@ -189,9 +224,13 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       body: Container(
         width: double.infinity,
         height: double.infinity,
+        // --- 3. BLUE GRADIENT BACKGROUND ---
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF4A00E0), Color(0xFF8E2DE2)], // Modern Purple-Blue Gradient
+            colors: [
+              Color(0xFF005BEA), // Deep Professional Blue
+              Color(0xFF00C6FB)  // Bright Cyan Blue
+            ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -199,11 +238,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Centered Content
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Animated Logo
                 ScaleTransition(
                   scale: _scaleAnimation,
                   child: Container(
@@ -224,7 +261,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                 ),
                 const SizedBox(height: 20),
 
-                // Animated Text
                 FadeTransition(
                   opacity: _fadeAnimation,
                   child: Column(
@@ -253,7 +289,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               ],
             ),
 
-            // Bottom Loader & Error Msg
             Positioned(
               bottom: 50,
               child: Column(

@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
-// import 'package:intl/intl.dart'; // UNCOMMENT if you want formatted dates (e.g., Dec 25, 2025)
+import 'package:intl/intl.dart'; // Ensure you have intl: ^0.18.0 in pubspec.yaml
 
 class PatientHistoryScreen extends StatefulWidget {
   final String? patientId; // If null, it assumes the current user (Patient View)
@@ -24,17 +24,15 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
   final TextEditingController _allergiesController = TextEditingController();
 
   bool _isLoading = false;
-  late String _targetUid; // The ID of the patient we are viewing
-  late bool _isDoctorView; // To check if we should allow editing
+  late String _targetUid;
+  late bool _isDoctorView;
+  int _currentTab = 0; // 0 = Visits History, 1 = Medical Profile
 
   @override
   void initState() {
     super.initState();
     final currentUser = FirebaseAuth.instance.currentUser;
 
-    // DECIDE MODE:
-    // If patientId is passed, a Doctor is viewing a specific patient.
-    // If patientId is null, the Patient is viewing their own profile.
     if (widget.patientId != null) {
       _targetUid = widget.patientId!;
       _isDoctorView = true;
@@ -46,7 +44,7 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
     _loadStaticHistory();
   }
 
-  // 1. Load Static History (Conditions, Allergies)
+  // 1. Load Static History
   Future<void> _loadStaticHistory() async {
     setState(() => _isLoading = true);
     try {
@@ -66,9 +64,9 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
     }
   }
 
-  // 2. Save History (Only for Patient)
+  // 2. Save History
   Future<void> _saveHistory() async {
-    if (_isDoctorView) return; // Doctors cannot edit this part
+    if (_isDoctorView) return;
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
@@ -83,9 +81,7 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
         'lastUpdated': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Medical Profile Updated!')));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Medical Profile Updated!')));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
@@ -95,111 +91,190 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // THEME SETUP
+    // --- THEME & COLORS ---
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
 
-    final bgColor = isDark ? const Color(0xFF121212) : Colors.grey[50];
-    final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.blue;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final subTextColor = isDark ? Colors.grey[400] : Colors.black;
-    final inputFill = isDark ? const Color(0xFF2C2C2C) : Colors.white;
+    final headerColor = Colors.blueAccent;
+    final containerColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF222B45);
+    final subTextColor = isDark ? Colors.grey[400] : const Color(0xFF6B779A);
+    final inputFill = isDark ? const Color(0xFF2C2C2C) : Colors.grey[50]!;
 
     return Scaffold(
-      backgroundColor: bgColor,
+      backgroundColor: headerColor, // Blue Top
       appBar: AppBar(
-        title: Text(_isDoctorView ? "Patient Medical Record" : "My Medical History", style: TextStyle(color: textColor)),
-        backgroundColor: cardColor,
+        title: Text(_isDoctorView ? "Patient History" : "Medical History", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        backgroundColor: headerColor,
         elevation: 0,
-        iconTheme: IconThemeData(color: textColor),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      body: Column(
+        children: [
+          const SizedBox(height: 20),
 
-            // --- SECTION 1: STATIC PROFILE (Conditions, Allergies) ---
-            Text("General Medical Profile", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
-            const SizedBox(height: 15),
-
-            Form(
-              key: _formKey,
+          // --- MAIN CONTAINER ---
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: containerColor,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(40),
+                  topRight: Radius.circular(40),
+                ),
+              ),
               child: Column(
                 children: [
-                  _buildTextField("Chronic Conditions", _conditionsController, Icons.favorite, isDark, inputFill, textColor, subTextColor!),
-                  const SizedBox(height: 15),
-                  _buildTextField("Past Surgeries", _surgeriesController, Icons.medical_services, isDark, inputFill, textColor, subTextColor),
-                  const SizedBox(height: 15),
-                  _buildTextField("Current Medications", _medicationsController, Icons.medication, isDark, inputFill, textColor, subTextColor),
-                  const SizedBox(height: 15),
-                  _buildTextField("Allergies", _allergiesController, Icons.warning, isDark, inputFill, textColor, subTextColor),
+                  const SizedBox(height: 30),
+
+                  // --- TOGGLE TABS (Visits vs Profile) ---
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.black26 : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                    child: Row(
+                      children: [
+                        _buildTabButton("Visits History", 0, isDark),
+                        _buildTabButton("Medical Profile", 1, isDark),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 25),
+
+                  // --- CONTENT AREA ---
+                  Expanded(
+                    child: _currentTab == 0
+                        ? _buildVisitsList(textColor, subTextColor, inputFill)
+                        : _buildProfileForm(textColor, subTextColor, inputFill),
+                  ),
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
 
-            // Save Button (Only for Patient)
-            if (!_isDoctorView) ...[
-              const SizedBox(height: 20),
+  // --- TAB BUTTON ---
+  Widget _buildTabButton(String title, int index, bool isDark) {
+    bool isActive = _currentTab == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _currentTab = index),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isActive ? Colors.blueAccent : Colors.transparent,
+            borderRadius: BorderRadius.circular(25),
+            boxShadow: isActive ? [BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 3))] : [],
+          ),
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: isActive ? Colors.white : (isDark ? Colors.grey : Colors.grey[600]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- TAB 1: VISITS HISTORY (Stream) ---
+  Widget _buildVisitsList(Color textColor, Color? subTextColor, Color cardColor) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('appointmentResults')
+          .where('patientId', isEqualTo: _targetUid)
+          .where('type', isEqualTo: 'prescription')
+          .orderBy('timestamp', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          // If index error occurs, show hint
+          return Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Text("Waiting for Index... (Check Console if stuck)", style: TextStyle(color: subTextColor)),
+          );
+        }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.history, size: 60, color: Colors.grey[300]),
+                const SizedBox(height: 10),
+                Text("No medical records found.", style: TextStyle(color: subTextColor)),
+              ],
+            ),
+          );
+        }
+
+        final docs = snapshot.data!.docs;
+
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          itemCount: docs.length,
+          separatorBuilder: (c, i) => const SizedBox(height: 15),
+          itemBuilder: (context, index) {
+            final data = docs[index].data() as Map<String, dynamic>;
+            return _buildHistoryCard(data, cardColor, textColor, subTextColor!);
+          },
+        );
+      },
+    );
+  }
+
+  // --- TAB 2: PROFILE FORM ---
+  Widget _buildProfileForm(Color textColor, Color? subTextColor, Color inputFill) {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Update your medical info for better diagnosis.", style: TextStyle(color: subTextColor, fontSize: 13)),
+            const SizedBox(height: 20),
+
+            _buildTextField("Chronic Conditions", _conditionsController, Icons.favorite, inputFill, textColor, subTextColor!),
+            const SizedBox(height: 15),
+            _buildTextField("Past Surgeries", _surgeriesController, Icons.medical_services, inputFill, textColor, subTextColor),
+            const SizedBox(height: 15),
+            _buildTextField("Current Medications", _medicationsController, Icons.medication, inputFill, textColor, subTextColor),
+            const SizedBox(height: 15),
+            _buildTextField("Allergies", _allergiesController, Icons.warning, inputFill, textColor, subTextColor),
+
+            const SizedBox(height: 30),
+
+            if (!_isDoctorView)
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton(
                   onPressed: _saveHistory,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
-                  child: const Text("Update Profile", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                    elevation: 4,
+                  ),
+                  child: const Text("Save Changes", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                 ),
               ),
-            ],
-
-            const SizedBox(height: 35),
-            const Divider(),
-            const SizedBox(height: 15),
-
-            // --- SECTION 2: PAST APPOINTMENT RESULTS (Fetched from Database) ---
-            Text("Clinical History (Past Visits)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
-            const SizedBox(height: 15),
-
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('appointmentResults')
-                  .where('patientId', isEqualTo: _targetUid)
-                  .where('type', isEqualTo: 'prescription')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return Container(
-                    padding: const EdgeInsets.all(20),
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: cardColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.withOpacity(0.2)),
-                    ),
-                    child: Center(child: Text("No past medical records found.", style: TextStyle(color: subTextColor))),
-                  );
-                }
-
-                final docs = snapshot.data!.docs;
-
-                return ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(), // Scroll handled by parent
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    return _buildHistoryCard(data, cardColor, textColor, subTextColor);
-                  },
-                );
-              },
-            ),
-
             const SizedBox(height: 30),
           ],
         ),
@@ -207,34 +282,29 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
     );
   }
 
-  // --- WIDGET: Text Field (Editable or Read-Only based on mode) ---
-  Widget _buildTextField(String label, TextEditingController controller, IconData icon, bool isDark, Color fillColor, Color textColor, Color hintColor) {
+  // --- WIDGETS ---
+
+  Widget _buildTextField(String label, TextEditingController controller, IconData icon, Color fillColor, Color textColor, Color hintColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(icon, size: 16, color: Colors.blueAccent),
-            const SizedBox(width: 8),
-            Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: hintColor)),
-          ],
-        ),
+        Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: textColor)),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
             color: fillColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: isDark ? Colors.grey[800]! : Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(15),
           ),
           child: TextFormField(
             controller: controller,
-            readOnly: _isDoctorView, // Doctor can't edit
+            readOnly: _isDoctorView,
             style: TextStyle(color: textColor),
-            maxLines: null, // Auto-expand
+            maxLines: null,
             decoration: InputDecoration(
+              prefixIcon: Icon(icon, color: Colors.blueAccent, size: 20),
               border: InputBorder.none,
-              contentPadding: const EdgeInsets.all(12),
-              hintText: _isDoctorView ? "Not recorded" : "Tap to add info...",
+              contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+              hintText: _isDoctorView ? "None" : "Type here...",
               hintStyle: TextStyle(color: hintColor.withOpacity(0.5)),
             ),
           ),
@@ -243,49 +313,59 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
     );
   }
 
-  // --- WIDGET: Past Appointment Card ---
   Widget _buildHistoryCard(Map<String, dynamic> data, Color cardColor, Color textColor, Color subTextColor) {
     String diagnosis = data['diagnosis'] ?? "Unknown";
     String prescription = data['prescription'] ?? "No medicines";
-    // Timestamp timestamp = data['timestamp']; // You can format this if you uncomment intl package
+
+    // Format Date (Requires intl package)
+    String dateStr = "Unknown Date";
+    if (data['timestamp'] != null) {
+      DateTime dt = (data['timestamp'] as Timestamp).toDate();
+      dateStr = DateFormat('MMM d, yyyy').format(dt); // e.g., Dec 25, 2025
+    }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 15),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+        color: cardColor, // Adapts to theme
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.1), shape: BoxShape.circle),
-                child: const Icon(Icons.assignment_turned_in, color: Colors.blueAccent, size: 20),
-              ),
-              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   diagnosis,
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              // Optional: Display Date here
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                child: Text(dateStr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+              )
             ],
           ),
           const SizedBox(height: 10),
-          const Divider(),
-          const SizedBox(height: 5),
-          Text("Prescription:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: subTextColor)),
-          const SizedBox(height: 4),
-          Text(
-            prescription,
-            style: TextStyle(color: textColor, fontSize: 14),
+          Divider(color: Colors.grey.withOpacity(0.1)),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.medication_liquid, size: 16, color: Colors.orangeAccent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  prescription,
+                  style: TextStyle(color: subTextColor, fontSize: 14, height: 1.4),
+                ),
+              ),
+            ],
           ),
         ],
       ),

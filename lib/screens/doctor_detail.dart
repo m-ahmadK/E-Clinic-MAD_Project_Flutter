@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/theme_provider.dart'; // Ensure this path is correct
+import '../providers/theme_provider.dart';
 
 class DoctorDetailScreen extends StatelessWidget {
   const DoctorDetailScreen({super.key});
@@ -16,12 +16,11 @@ class DoctorDetailScreen extends StatelessWidget {
       return;
     }
 
-    // Navigate to Chat Screen
     Navigator.pushNamed(context, '/chat_screen', arguments: {
       'patientId': user.uid,
       'doctorId': doctorId,
       'doctorName': doctorName,
-      'isPatientView': true, // To indicate patient is viewing
+      'isPatientView': true,
     });
   }
 
@@ -30,7 +29,7 @@ class DoctorDetailScreen extends StatelessWidget {
     final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
     final String doctorId = args['doctorId'];
 
-    // --- 1. THEME VARIABLES ---
+    // --- THEME VARIABLES ---
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
 
@@ -43,12 +42,11 @@ class DoctorDetailScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
-        // --- UPDATED APP BAR ---
         title: const Text("Doctor Details", style: TextStyle(color: Colors.white)),
         centerTitle: true,
         elevation: 0,
-        backgroundColor: Colors.blueAccent, // Blue Background
-        iconTheme: const IconThemeData(color: Colors.white), // White Back Arrow
+        backgroundColor: Colors.blueAccent,
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: FutureBuilder<DocumentSnapshot>(
         future: FirebaseFirestore.instance.collection('users').doc(doctorId).get(),
@@ -56,27 +54,25 @@ class DoctorDetailScreen extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError) {
-            return Center(child: Text("Something went wrong", style: TextStyle(color: textColor)));
-          }
-          if (!snapshot.hasData || !snapshot.data!.exists) {
+          if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
             return Center(child: Text("Doctor not found", style: TextStyle(color: textColor)));
           }
 
           final data = snapshot.data!.data() as Map<String, dynamic>;
 
-          // --- 2. DATA PARSING ---
+          // --- DATA PARSING ---
           final name = (data['name'] ?? "Unknown Doctor").toString();
           final specialization = (data['specialization'] ?? "Specialist").toString();
           final bio = (data['bio'] ?? "This doctor has not added a bio yet.").toString();
-          final experience = (data['experience'] ?? "5+").toString();
-          final rating = (data['rating'] ?? "4.8").toString();
+          final experience = (data['experience'] ?? "1").toString();
+          // Note: We don't use data['rating'] anymore, we calculate it live below
           final phone = (data['phone'] ?? "--").toString();
           final pmdcNumber = (data['pmdc_number'] ?? "--").toString();
           final startTiming = (data['start_timing'] ?? data['startTime'] ?? "10:00 AM").toString();
           final endTiming = (data['end_timing'] ?? data['endTime'] ?? "05:00 PM").toString();
+          final String fees = (data['fees'] ?? "1500").toString();
 
-          // --- 3. IMAGE LOGIC ---
+          // Image
           String displayImage = '';
           if (data['profileImage'] != null && data['profileImage'].toString().isNotEmpty) {
             displayImage = data['profileImage'].toString();
@@ -106,7 +102,7 @@ class DoctorDetailScreen extends StatelessWidget {
                           radius: 60,
                           backgroundColor: isDark ? Colors.grey[800] : Colors.white,
                           backgroundImage: displayImage.isNotEmpty
-                              ? CachedNetworkImageProvider(displayImage) // Optimized
+                              ? CachedNetworkImageProvider(displayImage)
                               : null,
                           child: displayImage.isEmpty
                               ? Icon(Icons.person, size: 60, color: Colors.grey[400])
@@ -136,7 +132,7 @@ class DoctorDetailScreen extends StatelessWidget {
                         children: [
                           _buildStatItem("Experience", "$experience Yrs", Colors.blue, statBgColor, textColor),
 
-                          // --- DYNAMIC PATIENT COUNT ---
+                          // Dynamic Patient Count
                           FutureBuilder<AggregateQuerySnapshot>(
                             future: FirebaseFirestore.instance
                                 .collection('appointments')
@@ -152,7 +148,26 @@ class DoctorDetailScreen extends StatelessWidget {
                             },
                           ),
 
-                          _buildStatItem("Rating", rating, Colors.amber, statBgColor, textColor),
+                          // --- LIVE AVERAGE RATING CALCULATION ---
+                          FutureBuilder<QuerySnapshot>(
+                            future: FirebaseFirestore.instance
+                                .collection('ratings')
+                                .where('doctorId', isEqualTo: doctorId)
+                                .get(),
+                            builder: (context, ratingSnapshot) {
+                              String ratingDisplay = "0.0";
+                              if (ratingSnapshot.hasData && ratingSnapshot.data!.docs.isNotEmpty) {
+                                double totalRating = 0.0;
+                                for (var doc in ratingSnapshot.data!.docs) {
+                                  // Handle both int and double types safely
+                                  totalRating += (doc['rating'] as num).toDouble();
+                                }
+                                double avg = totalRating / ratingSnapshot.data!.docs.length;
+                                ratingDisplay = avg.toStringAsFixed(1); // e.g. "4.5"
+                              }
+                              return _buildStatItem("Rating", ratingDisplay, Colors.amber, statBgColor, textColor);
+                            },
+                          ),
                         ],
                       ),
 
@@ -186,6 +201,7 @@ class DoctorDetailScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Container(
+                        width: double.infinity,
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                             color: cardColor,
@@ -199,6 +215,22 @@ class DoctorDetailScreen extends StatelessWidget {
                           style: TextStyle(fontSize: 15, color: subTextColor, height: 1.5),
                         ),
                       ),
+
+                      const SizedBox(height: 32),
+
+                      // --- RECENT REVIEWS SECTION ---
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          "Patient Reviews",
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Reviews List
+                      _buildReviewsList(doctorId, isDark, textColor, subTextColor),
+
                       const SizedBox(height: 20),
                     ],
                   ),
@@ -216,7 +248,7 @@ class DoctorDetailScreen extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    // 1. CHAT BUTTON
+                    // Chat Button
                     Expanded(
                       flex: 1,
                       child: SizedBox(
@@ -235,7 +267,7 @@ class DoctorDetailScreen extends StatelessWidget {
                     ),
                     const SizedBox(width: 15),
 
-                    // 2. BOOK BUTTON
+                    // Book Button
                     Expanded(
                       flex: 2,
                       child: SizedBox(
@@ -250,7 +282,7 @@ class DoctorDetailScreen extends StatelessWidget {
                                   'doctorName': name,
                                   'start_timing': startTiming,
                                   'end_timing': endTiming,
-                                  'fees': data['fees'] ?? '1500', // Pass fees too if needed
+                                  'fees': fees,
                                 }
                             );
                           },
@@ -276,6 +308,7 @@ class DoctorDetailScreen extends StatelessWidget {
     );
   }
 
+  // --- STAT ITEM WIDGET ---
   Widget _buildStatItem(String label, String value, Color iconColor, Color bgColor, Color textColor) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -299,6 +332,125 @@ class DoctorDetailScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  // --- REVIEWS LIST BUILDER ---
+  Widget _buildReviewsList(String doctorId, bool isDark, Color textColor, Color? subTextColor) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('ratings')
+          .where('doctorId', isEqualTo: doctorId)
+          .orderBy('timestamp', descending: true)
+          .limit(5)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          // If index is missing or other error
+          return Container(
+            padding: const EdgeInsets.all(10),
+            width: double.infinity,
+            decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12)
+            ),
+            child: const Text("Reviews require an Index. Check Console.", style: TextStyle(color: Colors.red, fontSize: 12)),
+          );
+        }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text("No reviews yet.", textAlign: TextAlign.center, style: TextStyle(color: subTextColor)),
+          );
+        }
+
+        return ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: snapshot.data!.docs.length,
+          separatorBuilder: (c, i) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+            return _buildReviewItem(data, isDark, textColor, subTextColor);
+          },
+        );
+      },
+    );
+  }
+
+  // --- SINGLE REVIEW ITEM ---
+  Widget _buildReviewItem(Map<String, dynamic> reviewData, bool isDark, Color textColor, Color? subTextColor) {
+    final String patientId = reviewData['patientId'] ?? "";
+    final double rating = (reviewData['rating'] ?? 0).toDouble();
+    final String comment = reviewData['comment'] ?? "";
+
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('users').doc(patientId).get(),
+      builder: (context, snapshot) {
+        String patientName = "Anonymous";
+        String? patientImage;
+
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final userData = snapshot.data!.data() as Map<String, dynamic>;
+          patientName = userData['name'] ?? "Anonymous";
+          patientImage = userData['profileImage'] ?? userData['imageUrl'];
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 3))
+            ],
+            border: Border.all(color: Colors.grey.withOpacity(0.1)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: Colors.blueAccent.withOpacity(0.1),
+                    backgroundImage: patientImage != null ? CachedNetworkImageProvider(patientImage) : null,
+                    child: patientImage == null ? const Icon(Icons.person, size: 16, color: Colors.blueAccent) : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      patientName,
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: textColor),
+                    ),
+                  ),
+                  Row(
+                    children: List.generate(5, (index) => Icon(
+                      index < rating ? Icons.star : Icons.star_border,
+                      size: 14, color: Colors.amber,
+                    )),
+                  ),
+                ],
+              ),
+              if (comment.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  comment,
+                  style: TextStyle(color: subTextColor, fontSize: 13, fontStyle: FontStyle.italic),
+                ),
+              ]
+            ],
+          ),
+        );
+      },
     );
   }
 }

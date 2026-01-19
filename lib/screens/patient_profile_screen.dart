@@ -1,13 +1,14 @@
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:provider/provider.dart'; // Import Provider
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/cloudinary_service.dart';
-import '../providers/theme_provider.dart'; // Import your ThemeProvider
+import '../providers/theme_provider.dart';
 
 class PatientProfileScreen extends StatefulWidget {
   const PatientProfileScreen({super.key});
@@ -23,12 +24,16 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
   final TextEditingController _nameCtrl = TextEditingController();
   final TextEditingController _phoneCtrl = TextEditingController();
   final TextEditingController _addressCtrl = TextEditingController();
+  final TextEditingController _genderCtrl = TextEditingController();
+  final TextEditingController _dobCtrl = TextEditingController();
+  final TextEditingController _bloodGroupCtrl = TextEditingController();
 
   final CloudinaryService _cloudinaryService = CloudinaryService();
   final ImagePicker _picker = ImagePicker();
 
   File? _pickedImage;
   String? _networkImageUrl;
+  String? _email = "";
   bool _isLoading = false;
   bool _isEditing = false;
 
@@ -43,17 +48,21 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
+        _email = user.email;
         final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
         if (doc.exists) {
           final data = doc.data()!;
           _nameCtrl.text = data['name'] ?? '';
           _phoneCtrl.text = data['phone'] ?? '';
           _addressCtrl.text = data['address'] ?? '';
-          _networkImageUrl = data['imageUrl'];
+          _genderCtrl.text = data['gender'] ?? '';
+          _dobCtrl.text = data['dob'] ?? '';
+          _bloodGroupCtrl.text = data['bloodGroup'] ?? '';
+          _networkImageUrl = data['profileImage'] ?? data['imageUrl'];
         }
       }
     } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error loading data: $e')));
+      debugPrint("Error loading profile: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -81,23 +90,25 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
 
       if (_pickedImage != null) {
         imageUrl = await _cloudinaryService.uploadImage(_pickedImage!);
-        if (imageUrl == null) {
-          throw Exception('Image upload failed');
-        }
+        if (imageUrl == null) throw Exception('Image upload failed');
       }
 
       await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
         'name': _nameCtrl.text.trim(),
         'phone': _phoneCtrl.text.trim(),
         'address': _addressCtrl.text.trim(),
-        'imageUrl': imageUrl,
+        'gender': _genderCtrl.text.trim(),
+        'dob': _dobCtrl.text.trim(),
+        'bloodGroup': _bloodGroupCtrl.text.trim(),
+        'profileImage': imageUrl, // Standardized key
       });
 
+      // Update Shared Prefs for local usage
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('name', _nameCtrl.text.trim());
-      if(imageUrl != null) await prefs.setString('imageUrl', imageUrl);
+      if (imageUrl != null) await prefs.setString('imageUrl', imageUrl);
 
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated successfully!')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile Updated Successfully!')));
 
       setState(() {
         _isEditing = false;
@@ -106,202 +117,289 @@ class _PatientProfileScreenState extends State<PatientProfileScreen> {
       });
 
     } catch (e) {
-      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving profile: $e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _logout(BuildContext context) async {
+  Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
-    if (context.mounted) {
-      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-    }
+    if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 
   @override
   Widget build(BuildContext context) {
-    // 1. LISTEN TO PROVIDER for Dark Mode state
+    // Theme Variables
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
 
-    // 2. Use Standard Theme Colors (Defined in main.dart)
-    final cardColor = Theme.of(context).cardColor;
-    final textColor = Theme.of(context).textTheme.bodyLarge?.color ?? (isDark ? Colors.white : Colors.black87);
-    final labelColor = isDark ? Colors.grey[400] : Colors.grey[600];
+    final headerColor = Colors.blueAccent;
+    final bgColor = headerColor;
+    final containerColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF222B45);
+    final labelColor = isDark ? Colors.grey[400] : Colors.grey[500];
+    final iconColor = Colors.blueAccent;
 
     return Scaffold(
-      // Background color is handled automatically by 'main.dart' theme now
+      backgroundColor: bgColor,
       appBar: AppBar(
-        title: const Text('My Profile'),
+        title: const Text("My Profile", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        centerTitle: true,
+        backgroundColor: headerColor,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
-            icon: Icon(_isEditing ? Icons.check : Icons.edit),
+            icon: Icon(_isEditing ? Icons.check : Icons.edit, color: Colors.white),
             onPressed: () {
-              if (_isEditing) {
-                _saveProfile();
-              } else {
-                setState(() => _isEditing = true);
-              }
+              if (_isEditing) _saveProfile();
+              else setState(() => _isEditing = true);
             },
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-        child: Column(
-          children: [
-            // --- HEADER SECTION ---
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Theme.of(context).appBarTheme.backgroundColor,
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(30),
-                  bottomRight: Radius.circular(30),
-                ),
-              ),
-              padding: const EdgeInsets.only(bottom: 30),
-              child: Column(
+          ? const Center(child: CircularProgressIndicator(color: Colors.white))
+          : Column(
+        children: [
+          // --- TOP SECTION (Profile Pic) ---
+          const SizedBox(height: 10),
+          Center(
+            child: GestureDetector(
+              onTap: _pickImage,
+              child: Stack(
+                alignment: Alignment.bottomRight,
                 children: [
-                  GestureDetector(
-                    onTap: _pickImage,
-                    child: Stack(
-                      alignment: Alignment.bottomRight,
-                      children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 3),
-                          ),
-                          child: CircleAvatar(
-                            radius: 60,
-                            backgroundColor: Colors.grey[300],
-                            backgroundImage: _pickedImage != null
-                                ? FileImage(_pickedImage!)
-                                : (_networkImageUrl != null && _networkImageUrl!.isNotEmpty
-                                ? NetworkImage(_networkImageUrl!)
-                                : null) as ImageProvider?,
-                            child: _pickedImage == null && (_networkImageUrl == null || _networkImageUrl!.isEmpty)
-                                ? Icon(Icons.person, size: 60, color: Colors.grey[600])
-                                : null,
-                          ),
-                        ),
-                        if (_isEditing)
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.camera_alt, color: Colors.blueAccent, size: 20),
-                          ),
-                      ],
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white.withOpacity(0.5), width: 2)),
+                    child: CircleAvatar(
+                      radius: 55,
+                      backgroundColor: Colors.white,
+                      backgroundImage: _pickedImage != null
+                          ? FileImage(_pickedImage!)
+                          : (_networkImageUrl != null && _networkImageUrl!.isNotEmpty
+                          ? CachedNetworkImageProvider(_networkImageUrl!)
+                          : null) as ImageProvider?,
+                      child: _pickedImage == null && (_networkImageUrl == null || _networkImageUrl!.isEmpty)
+                          ? const Icon(Icons.person, size: 60, color: Colors.grey)
+                          : null,
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    _nameCtrl.text.isNotEmpty ? _nameCtrl.text : "Patient Name",
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                  Text(
-                    FirebaseAuth.instance.currentUser?.email ?? "",
-                    style: const TextStyle(fontSize: 14, color: Colors.white70),
-                  ),
+                  if (_isEditing)
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                      child: const Icon(Icons.camera_alt, color: Colors.blueAccent, size: 20),
+                    ),
                 ],
               ),
             ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _nameCtrl.text.isEmpty ? "Patient Name" : _nameCtrl.text,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+          Text(
+            _email ?? "",
+            style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.8)),
+          ),
+          const SizedBox(height: 25),
 
-            const SizedBox(height: 20),
+          // --- BOTTOM CONTAINER (Form) ---
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 30),
+              decoration: BoxDecoration(
+                color: containerColor,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(40),
+                  topRight: Radius.circular(40),
+                ),
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Personal Information", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
+                      const SizedBox(height: 20),
 
-            // --- FORM SECTION ---
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    _buildTextField("Full Name", _nameCtrl, Icons.person, cardColor, textColor, labelColor!),
-                    const SizedBox(height: 15),
-                    _buildTextField("Phone Number", _phoneCtrl, Icons.phone, cardColor, textColor, labelColor),
-                    const SizedBox(height: 15),
-                    _buildTextField("Address", _addressCtrl, Icons.location_on, cardColor, textColor, labelColor),
+                      // Fields
+                      _buildInfoTile("Full Name", _nameCtrl, Icons.person, isDark, textColor, labelColor, iconColor),
+                      const SizedBox(height: 20),
 
-                    const SizedBox(height: 30),
-                    const Divider(),
-
-                    // --- DARK MODE SWITCH (Connected to Provider) ---
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: Colors.purple.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                        child: const Icon(Icons.dark_mode, color: Colors.purple),
+                      Row(
+                        children: [
+                          Expanded(child: _buildInfoTile("Gender", _genderCtrl, Icons.male, isDark, textColor, labelColor, iconColor)),
+                          const SizedBox(width: 15),
+                          Expanded(child: _buildInfoTile("Date of Birth", _dobCtrl, Icons.calendar_today, isDark, textColor, labelColor, iconColor)),
+                        ],
                       ),
-                      title: Text('Dark Mode', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-                      trailing: Switch(
-                        value: isDark, // Value from Provider
-                        activeColor: Colors.purple,
-                        onChanged: (value) {
-                          // Action updates Provider
-                          themeProvider.toggleTheme(value);
-                        },
-                      ),
-                    ),
+                      const SizedBox(height: 20),
 
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                        child: const Icon(Icons.logout, color: Colors.redAccent),
+                      Row(
+                        children: [
+                          Expanded(child: _buildInfoTile("Phone", _phoneCtrl, Icons.phone, isDark, textColor, labelColor, iconColor)),
+                          const SizedBox(width: 15),
+                          Expanded(child: _buildInfoTile("Blood Group", _bloodGroupCtrl, Icons.bloodtype, isDark, textColor, labelColor, Colors.redAccent)),
+                        ],
                       ),
-                      title: Text('Logout', style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
-                      onTap: () => _logout(context),
-                    ),
-                    const SizedBox(height: 40),
-                  ],
+                      const SizedBox(height: 20),
+
+                      _buildInfoTile("Address", _addressCtrl, Icons.location_on, isDark, textColor, labelColor, iconColor),
+
+                      const SizedBox(height: 30),
+                      Divider(color: Colors.grey.withOpacity(0.2)),
+                      const SizedBox(height: 10),
+
+                      // Settings Section
+                      Text("Settings", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
+                      const SizedBox(height: 15),
+
+                      // Dark Mode
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[50],
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: Colors.grey.withOpacity(0.1)),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(color: Colors.purple.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                              child: const Icon(Icons.dark_mode, color: Colors.purple),
+                            ),
+                            const SizedBox(width: 15),
+                            Expanded(child: Text("Dark Mode", style: TextStyle(fontWeight: FontWeight.w600, color: textColor))),
+                            Switch(
+                              value: isDark,
+                              activeColor: Colors.blueAccent,
+                              onChanged: (val) => themeProvider.toggleTheme(val),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 15),
+
+                      // Logout
+                      GestureDetector(
+                        onTap: () => _logout(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[50],
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(color: Colors.grey.withOpacity(0.1)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                                child: const Icon(Icons.logout, color: Colors.redAccent),
+                              ),
+                              const SizedBox(width: 15),
+                              Text("Log Out", style: TextStyle(fontWeight: FontWeight.w600, color: textColor)),
+                              const Spacer(),
+                              const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildTextField(
+  // --- DYNAMIC TILE: Switches between Read-Only (Beautiful) and Edit (TextField) ---
+  Widget _buildInfoTile(
       String label,
       TextEditingController controller,
       IconData icon,
-      Color bgColor,
-      Color txtColor,
-      Color lblColor) {
-    return Container(
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-        // Add shadow only in Light Mode for depth
-        boxShadow: Theme.of(context).brightness == Brightness.light ? [
-          BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 5))
-        ] : [],
-      ),
-      child: TextFormField(
-        controller: controller,
-        enabled: _isEditing,
-        style: TextStyle(color: txtColor),
-        validator: (val) => val!.isEmpty ? '$label cannot be empty' : null,
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(color: lblColor),
-          prefixIcon: Icon(icon, color: Colors.blueAccent),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+      bool isDark,
+      Color textColor,
+      Color? labelColor,
+      Color iconColor) {
+
+    // VIEW MODE
+    if (!_isEditing) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[50],
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: Colors.grey.withOpacity(0.1)),
         ),
-      ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: iconColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: TextStyle(fontSize: 12, color: labelColor)),
+                  const SizedBox(height: 4),
+                  Text(
+                    controller.text.isEmpty ? "N/A" : controller.text,
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: textColor),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // EDIT MODE
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: labelColor)),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blueAccent.withOpacity(0.5)),
+          ),
+          child: TextFormField(
+            controller: controller,
+            style: TextStyle(color: textColor, fontWeight: FontWeight.w500),
+            decoration: InputDecoration(
+              prefixIcon: Icon(icon, color: iconColor, size: 20),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
+              hintText: "Enter $label",
+              hintStyle: TextStyle(color: Colors.grey[400], fontSize: 13),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
